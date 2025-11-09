@@ -7,8 +7,13 @@ import jakarta.faces.view.ViewScoped;
 import jakarta.inject.Inject;
 import jakarta.inject.Named;
 import ma.emsi.bendahou.tp4_web.llm.LlmClient;
+import ma.emsi.bendahou.tp4_web.rag.MagasinEmbeddings;
 import ma.emsi.bendahou.tp4_web.rag.RagService;
 
+import java.io.IOException;
+import java.io.InputStream;
+import java.io.ObjectInputStream;
+import java.io.ObjectOutputStream;
 import java.io.Serializable;
 import java.util.ArrayList;
 import java.util.List;
@@ -54,24 +59,85 @@ public class Bb implements Serializable {
     private StringBuilder conversation = new StringBuilder();
 
     /**
-     * Contexte JSF. Utilisé pour qu'un message d'erreur s'affiche dans le formulaire.
+     * Obtient le contexte JSF actuel. FacesContext ne peut pas être injecté dans un bean @ViewScoped.
+     * Il doit être obtenu via getCurrentInstance() à chaque utilisation.
      */
-    @Inject
-    private FacesContext facesContext;
+    private FacesContext getFacesContext() {
+        return FacesContext.getCurrentInstance();
+    }
 
     /**
      * Service RAG pour le RAG conditionnel et multi-documents.
+     * Marqué comme transient car RagService est injecté et peut ne pas être sérialisable.
      */
     @Inject
-    private RagService ragService;
+    private transient RagService ragService;
 
     // Instance du client LLM
-    private LlmClient llmClient;
+    // Marqué comme transient car LlmClient n'est pas sérialisable
+    private transient LlmClient llmClient;
+    
+    /**
+     * Fichier PDF uploadé par l'utilisateur (pour le mode Upload de Document).
+     * Marqué comme transient car Part n'est pas sérialisable.
+     */
+    private transient jakarta.servlet.http.Part fichier;
+    
+    /**
+     * Message pour l'upload de fichier.
+     */
+    private String messagePourChargementFichier;
+    
+    /**
+     * Magasin d'embeddings pour le document uploadé (mode Upload de Document).
+     * Marqué comme transient car MagasinEmbeddings peut contenir des objets non sérialisables.
+     */
+    private transient MagasinEmbeddings magasinEmbeddingsUpload;
 
     /**
      * Obligatoire pour un bean CDI (classe gérée par CDI), s'il y a un autre constructeur.
      */
     public Bb() {
+    }
+    
+    /**
+     * Réinitialise les objets injectés après la désérialisation.
+     * Les objets marqués comme transient ne sont pas automatiquement réinjectés par CDI.
+     */
+    @jakarta.annotation.PostConstruct
+    public void init() {
+        // Réinjecter ragService si nécessaire (après désérialisation)
+        if (ragService == null) {
+            try {
+                ragService = jakarta.enterprise.inject.spi.CDI.current().select(RagService.class).get();
+            } catch (Exception e) {
+                // Si CDI n'est pas disponible, on laisse null
+            }
+        }
+    }
+    
+    /**
+     * Méthode personnalisée pour la sérialisation.
+     * Assure que tous les objets sérialisables sont correctement sérialisés.
+     */
+    private void writeObject(ObjectOutputStream out) throws IOException {
+        out.defaultWriteObject();
+    }
+    
+    /**
+     * Méthode personnalisée pour la désérialisation.
+     * Réinitialise les objets transient après la désérialisation.
+     */
+    private void readObject(ObjectInputStream in) throws IOException, ClassNotFoundException {
+        in.defaultReadObject();
+        // Réinjecter ragService après la désérialisation
+        if (ragService == null) {
+            try {
+                ragService = jakarta.enterprise.inject.spi.CDI.current().select(RagService.class).get();
+            } catch (Exception e) {
+                // Si CDI n'est pas disponible, on laisse null
+            }
+        }
     }
 
     public String getRoleSysteme() {
@@ -114,6 +180,42 @@ public class Bb implements Serializable {
     public void setConversation(String conversation) {
         this.conversation = new StringBuilder(conversation);
     }
+    
+    /**
+     * Getter pour le fichier uploadé.
+     */
+    public jakarta.servlet.http.Part getFichier() {
+        return fichier;
+    }
+    
+    /**
+     * Setter pour le fichier uploadé.
+     * Gère le cas où le formulaire n'est pas multipart (ne fait rien dans ce cas).
+     */
+    public void setFichier(jakarta.servlet.http.Part fichier) {
+        try {
+            // Vérifier si le fichier est valide (ne pas essayer d'accéder aux méthodes si null)
+            if (fichier != null) {
+                // Essayer d'accéder au nom du fichier pour vérifier que c'est bien un multipart
+                fichier.getSubmittedFileName(); // Vérification que c'est un vrai Part
+                this.fichier = fichier;
+            } else {
+                this.fichier = null;
+            }
+        } catch (Exception e) {
+            // Si une erreur survient (formulaire non multipart), ignorer silencieusement
+            // Cela peut arriver si JSF essaie de binder le champ même si le formulaire n'est pas multipart
+            this.fichier = null;
+        }
+    }
+    
+    /**
+     * Getter pour le message de chargement de fichier.
+     */
+    public String getMessagePourChargementFichier() {
+        return messagePourChargementFichier;
+    }
+    
 
     /**
      * Envoie la question au serveur.
@@ -128,28 +230,80 @@ public class Bb implements Serializable {
             // Erreur ! Le formulaire va être réaffiché en réponse à la requête POST, avec un message d'erreur.
             FacesMessage message = new FacesMessage(FacesMessage.SEVERITY_ERROR,
                     "Texte question vide", "Il manque le texte de la question");
-            facesContext.addMessage(null, message);
+            getFacesContext().addMessage(null, message);
+            return null;
+        }
+        
+        // Vérifier qu'un rôle est défini ou qu'un fichier a été uploadé
+        if ((roleSysteme == null || roleSysteme.isBlank()) && 
+            (magasinEmbeddingsUpload == null || messagePourChargementFichier == null || messagePourChargementFichier.isEmpty())) {
+            FacesMessage message = new FacesMessage(FacesMessage.SEVERITY_ERROR,
+                    "Rôle ou fichier requis", "Vous devez indiquer le rôle de l'assistant ou uploader un fichier PDF");
+            getFacesContext().addMessage(null, message);
             return null;
         }
 
-
+        // S'assurer que ragService est disponible (peut être null après désérialisation)
+        if (ragService == null) {
+            try {
+                ragService = jakarta.enterprise.inject.spi.CDI.current().select(RagService.class).get();
+            } catch (Exception e) {
+                // Si CDI n'est pas disponible, on continue sans ragService
+            }
+        }
+        
         if (llmClient == null) {
             llmClient = new LlmClient();
             
             // Configurer le service RAG dans le client LLM
-            llmClient.setRagService(ragService);
+            if (ragService != null) {
+                llmClient.setRagService(ragService);
+            }
             
-            // Déterminer le mode RAG selon le rôle choisi
-            String modeRag = determinerModeRag(roleSysteme);
+            // Déterminer le mode RAG selon le rôle choisi (ou utiliser "desactive" si aucun rôle)
+            String modeRag = (roleSysteme != null && !roleSysteme.isBlank()) 
+                    ? determinerModeRag(roleSysteme) 
+                    : "desactive";
             llmClient.setModeRag(modeRag);
+            
+            // Configurer le magasin d'embeddings uploadé si disponible (fonctionne avec tous les modes)
+            if (magasinEmbeddingsUpload != null) {
+                llmClient.setMagasinEmbeddingsUpload(magasinEmbeddingsUpload);
+            }
 
-            // On configure le rôle système si c'est la première question
+            // On configure le rôle système si c'est la première question et qu'un rôle est défini
+            // Si un fichier a été uploadé, le rôle n'est pas obligatoire
             if (this.conversation.isEmpty()) {
-                llmClient.setSystemRole(roleSysteme);
-                this.roleSystemeChangeable = false;
+                if (roleSysteme != null && !roleSysteme.isBlank()) {
+                    llmClient.setSystemRole(roleSysteme);
+                    this.roleSystemeChangeable = false;
+                } else if (magasinEmbeddingsUpload != null) {
+                    // Si un fichier a été uploadé mais pas de rôle, utiliser un rôle par défaut pour l'upload
+                    String roleParDefaut = "You are a helpful assistant. You answer questions based on the document uploaded by the user. When the user uploads a PDF document, you use the context from that document to answer their questions.";
+                    llmClient.setSystemRole(roleParDefaut);
+                    this.roleSystemeChangeable = false;
+                }
+            }
+        } else {
+            // Mettre à jour le mode RAG si le rôle change (ou utiliser "desactive" si aucun rôle)
+            String modeRag = (roleSysteme != null && !roleSysteme.isBlank()) 
+                    ? determinerModeRag(roleSysteme) 
+                    : "desactive";
+            llmClient.setModeRag(modeRag);
+            
+            // Configurer le magasin d'embeddings uploadé si disponible (fonctionne avec tous les modes)
+            // Toujours mettre à jour pour s'assurer que le magasin est à jour
+            if (magasinEmbeddingsUpload != null) {
+                llmClient.setMagasinEmbeddingsUpload(magasinEmbeddingsUpload);
             }
         }
 
+        // S'assurer que le magasin d'embeddings uploadé est toujours configuré dans le LlmClient
+        // (au cas où il a été uploadé après la création du client)
+        if (magasinEmbeddingsUpload != null && llmClient != null) {
+            llmClient.setMagasinEmbeddingsUpload(magasinEmbeddingsUpload);
+        }
+        
         // Appel de la classe LlmClient
         try {
             reponse = llmClient.chat(question);
@@ -158,7 +312,7 @@ public class Bb implements Serializable {
         } catch (Exception e) {
             FacesMessage message = new FacesMessage(FacesMessage.SEVERITY_ERROR,
                     "Erreur LLM", "Erreur lors de la communication avec le LLM: " + e.getMessage());
-            facesContext.addMessage(null, message);
+            getFacesContext().addMessage(null, message);
         }
 
         return null;
@@ -184,6 +338,53 @@ public class Bb implements Serializable {
     private void afficherConversation() {
         this.conversation.append("== User:\n").append(question).append("\n== Serveur:\n").append(reponse).append("\n");
     }
+    
+    /**
+     * Téléchargement de fichier PDF qui est ajouté dans la base de données vectorielle.
+     */
+    public void upload() {
+        // getSubmittedFileName() retourne le nom du fichier sur le disque du client.
+        if (this.fichier != null && this.fichier.getSubmittedFileName() != null 
+                && this.fichier.getSubmittedFileName().endsWith(".pdf")) {
+            try {
+                // Initialiser le magasin d'embeddings si nécessaire
+                if (magasinEmbeddingsUpload == null) {
+                    magasinEmbeddingsUpload = new MagasinEmbeddings();
+                }
+                
+                // Charger le fichier dans la BD vectorielle
+                InputStream inputStream = fichier.getInputStream();
+                magasinEmbeddingsUpload.ajouter(inputStream);
+                inputStream.close();
+                
+                messagePourChargementFichier = "✅ Fichier PDF chargé avec succès : " + fichier.getSubmittedFileName();
+                
+                // Mettre à jour le LlmClient avec le magasin d'embeddings si le client existe déjà
+                if (llmClient != null) {
+                    llmClient.setMagasinEmbeddingsUpload(magasinEmbeddingsUpload);
+                }
+                
+                // Afficher un message de succès
+                FacesMessage message = new FacesMessage(FacesMessage.SEVERITY_INFO,
+                        "Fichier uploadé", "Le fichier PDF a été chargé avec succès");
+                getFacesContext().addMessage(null, message);
+            } catch (Exception e) {
+                messagePourChargementFichier = "❌ Erreur lors du chargement du fichier : " + e.getMessage();
+                
+                // Afficher un message d'erreur
+                FacesMessage message = new FacesMessage(FacesMessage.SEVERITY_ERROR,
+                        "Erreur upload", "Erreur lors du chargement du fichier : " + e.getMessage());
+                getFacesContext().addMessage(null, message);
+            }
+        } else {
+            messagePourChargementFichier = "❌ Veuillez sélectionner un fichier PDF valide";
+            
+            // Afficher un message d'erreur
+            FacesMessage message = new FacesMessage(FacesMessage.SEVERITY_ERROR,
+                    "Fichier invalide", "Veuillez sélectionner un fichier PDF valide");
+            getFacesContext().addMessage(null, message);
+        }
+    }
 
     /**
      * Détermine le mode RAG selon le rôle choisi.
@@ -204,11 +405,6 @@ public class Bb implements Serializable {
         // RAG Multi-Documents : utilise toujours le RAG avec routage automatique
         if (roleSysteme.contains("RAG Multi-Documents") || roleSysteme.contains("multi-documents") || roleSysteme.contains("routage")) {
             return "multi-documents";
-        }
-        
-        // Mode Standard : pas de RAG
-        if (roleSysteme.contains("Mode Standard") || roleSysteme.contains("standard") || roleSysteme.contains("sans RAG")) {
-            return "desactive";
         }
         
         // Par défaut, mode conditionnel
@@ -238,14 +434,6 @@ public class Bb implements Serializable {
                     RAG Multi-Documents: Le système utilise toujours le RAG avec routage automatique entre les 3 PDF (ArtDeco.pdf, gothique.pdf, moderne.pdf).
                     """;
             this.listeRolesSysteme.add(new SelectItem(role, "RAG Multi-Documents (RAG Routage)"));
-
-            // Rôle 3 : Mode Standard (sans RAG, réponse directe du LLM)
-            role = """
-                    You are a helpful assistant. You answer questions directly without using any document context.
-                    You provide general information and help users with their questions.
-                    Mode Standard: Le système répond directement sans utiliser le RAG ni les documents PDF.
-                    """;
-            this.listeRolesSysteme.add(new SelectItem(role, "Mode Standard (LLM)"));
         }
 
         return this.listeRolesSysteme;

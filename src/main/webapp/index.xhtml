@@ -22,7 +22,8 @@
             à la propriété systemRole du backing bean. Cette liste est figée (disabled)
             dès qu'une requête a été envoyée au serveur. -->
             <p:selectOneMenu id="rolesysteme" value="#{bb.roleSysteme}" editable="true"
-                             required="true" requiredMessage="Vous devez indiquer le rôle de l'assistant"
+                             required="#{empty bb.messagePourChargementFichier}" 
+                             requiredMessage="Vous devez indiquer le rôle de l'assistant ou uploader un fichier PDF"
                              disabled="#{! bb.roleSystemeChangeable}">
                 <f:selectItems value="#{bb.rolesSysteme}"/>
             </p:selectOneMenu>
@@ -32,6 +33,22 @@
             <!-- Si on veut commencer un nouveau chat avec, éventuellement, un autre rôle. -->
             <h:outputText value="  "/>
             <h:commandButton value="Nouveau chat" action="#{bb.nouveauChat}" />
+        </h:form>
+        
+        <!-- Section d'upload de document (en dessous du rôle d'assistant, formulaire séparé) -->
+        <h:form id="pdfform" enctype="multipart/form-data">
+            <h:panelGroup>
+                <h:outputText value="Avez-vous d'autres thèmes que vous voulez en parler? Dites-les-nous.  "/>
+                <h:inputFile id="file" value="#{bb.fichier}" style="display: none;" onchange="document.getElementById('pdfform:uploadBtn').click();"/>
+                <h:commandButton id="uploadBtn" value="Upload Files PDF" action="#{bb.upload}" style="display: none;"/>
+                <h:commandButton value="Upload Files PDF" onclick="document.getElementById('pdfform:file').click(); return false;"/>
+                <h:outputText value="  "/>
+                <h:outputText value="#{bb.messagePourChargementFichier}"
+                              rendered="#{not empty bb.messagePourChargementFichier}"/>
+            </h:panelGroup>
+        </h:form>
+        
+        <h:form id="form2">
 
             <!-- Les éléments de la page sont disposés en deux colonnes :
             question et réponse à gauche et historique de la conversation à droite. -->

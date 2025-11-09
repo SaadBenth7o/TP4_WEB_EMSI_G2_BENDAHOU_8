@@ -24,8 +24,11 @@ public class LlmClient {
     // Service RAG pour le RAG conditionnel et multi-documents
     private RagService ragService;
     
-    // Mode RAG : "conditionnel", "multi-documents", ou "desactive"
+    // Mode RAG : "conditionnel", "multi-documents", "upload", ou "desactive"
     private String modeRag = "conditionnel";
+    
+    // Magasin d'embeddings pour le document uploadé (mode upload)
+    private ma.emsi.bendahou.tp4_web.rag.MagasinEmbeddings magasinEmbeddingsUpload;
 
     public LlmClient() {
         // Récupère la clé secrète pour travailler avec l'API du LLM, mise dans une variable d'environnement
@@ -60,12 +63,21 @@ public class LlmClient {
     }
     
     /**
-     * Définit le mode RAG : "conditionnel", "multi-documents", ou "desactive".
+     * Définit le mode RAG : "conditionnel", "multi-documents", "upload", ou "desactive".
      * 
      * @param modeRag le mode RAG
      */
     public void setModeRag(String modeRag) {
         this.modeRag = modeRag;
+    }
+    
+    /**
+     * Définit le magasin d'embeddings pour le document uploadé (mode upload).
+     * 
+     * @param magasinEmbeddingsUpload le magasin d'embeddings
+     */
+    public void setMagasinEmbeddingsUpload(ma.emsi.bendahou.tp4_web.rag.MagasinEmbeddings magasinEmbeddingsUpload) {
+        this.magasinEmbeddingsUpload = magasinEmbeddingsUpload;
     }
 
     public void setSystemRole(String systemRole) {
@@ -73,7 +85,10 @@ public class LlmClient {
 
         this.systemRole = systemRole;
 
-        this.chatMemory.add(SystemMessage.from(systemRole));
+        // Ne pas ajouter de message système si le rôle est null ou vide
+        if (systemRole != null && !systemRole.isBlank()) {
+            this.chatMemory.add(SystemMessage.from(systemRole));
+        }
     }
 
     /**
@@ -83,7 +98,29 @@ public class LlmClient {
      * @return la réponse du LLM
      */
     public String chat(String prompt) {
-        // Mode RAG désactivé : pas de RAG
+        // Vérifier d'abord si un document a été uploadé (priorité absolue sur tout le reste)
+        // Cela doit être vérifié AVANT toute autre vérification pour garantir que l'upload fonctionne
+        if (magasinEmbeddingsUpload != null) {
+            String contexteUpload = magasinEmbeddingsUpload.recupererContexte(prompt);
+            if (contexteUpload != null && !contexteUpload.isEmpty()) {
+                // Construire le prompt enrichi avec le contexte du document uploadé
+                String promptEnrichi = String.format(
+                    "Contexte fourni:\n%s\n\nQuestion de l'utilisateur: %s\n\nRéponds à la question en utilisant le contexte fourni du document uploadé. Si le contexte ne contient pas d'information pertinente, dis-le clairement.",
+                    contexteUpload, prompt
+                );
+                return this.assistant.chat(promptEnrichi);
+            } else {
+                // Si le contexte n'est pas trouvé mais qu'un document est uploadé, 
+                // utiliser quand même le document uploadé avec un message indiquant qu'on cherche dans le document
+                String promptEnrichi = String.format(
+                    "L'utilisateur a uploadé un document PDF. Question de l'utilisateur: %s\n\nRéponds à la question en te basant sur le document uploadé. Si tu ne trouves pas d'information pertinente dans le document, dis-le clairement.",
+                    prompt
+                );
+                return this.assistant.chat(promptEnrichi);
+            }
+        }
+        
+        // Mode RAG désactivé : pas de RAG (seulement si aucun document uploadé)
         if ("desactive".equals(modeRag) || ragService == null) {
             return this.assistant.chat(prompt);
         }
