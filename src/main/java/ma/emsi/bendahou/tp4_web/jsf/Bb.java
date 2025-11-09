@@ -7,6 +7,7 @@ import jakarta.faces.view.ViewScoped;
 import jakarta.inject.Inject;
 import jakarta.inject.Named;
 import ma.emsi.bendahou.tp4_web.llm.LlmClient;
+import ma.emsi.bendahou.tp4_web.rag.RagService;
 
 import java.io.Serializable;
 import java.util.ArrayList;
@@ -57,6 +58,12 @@ public class Bb implements Serializable {
      */
     @Inject
     private FacesContext facesContext;
+
+    /**
+     * Service RAG pour le RAG conditionnel et multi-documents.
+     */
+    @Inject
+    private RagService ragService;
 
     // Instance du client LLM
     private LlmClient llmClient;
@@ -128,6 +135,13 @@ public class Bb implements Serializable {
 
         if (llmClient == null) {
             llmClient = new LlmClient();
+            
+            // Configurer le service RAG dans le client LLM
+            llmClient.setRagService(ragService);
+            
+            // Déterminer le mode RAG selon le rôle choisi
+            String modeRag = determinerModeRag(roleSysteme);
+            llmClient.setModeRag(modeRag);
 
             // On configure le rôle système si c'est la première question
             if (this.conversation.isEmpty()) {
@@ -171,32 +185,67 @@ public class Bb implements Serializable {
         this.conversation.append("== User:\n").append(question).append("\n== Serveur:\n").append(reponse).append("\n");
     }
 
+    /**
+     * Détermine le mode RAG selon le rôle choisi.
+     * 
+     * @param roleSysteme le rôle système choisi
+     * @return le mode RAG : "conditionnel", "multi-documents", ou "desactive"
+     */
+    private String determinerModeRag(String roleSysteme) {
+        if (roleSysteme == null || roleSysteme.isEmpty()) {
+            return "conditionnel"; // Par défaut
+        }
+        
+        // RAG Conditionnel : détecte automatiquement si la question nécessite du RAG
+        if (roleSysteme.contains("RAG Conditionnel") || roleSysteme.contains("conditionnel")) {
+            return "conditionnel";
+        }
+        
+        // RAG Multi-Documents : utilise toujours le RAG avec routage automatique
+        if (roleSysteme.contains("RAG Multi-Documents") || roleSysteme.contains("multi-documents") || roleSysteme.contains("routage")) {
+            return "multi-documents";
+        }
+        
+        // Mode Standard : pas de RAG
+        if (roleSysteme.contains("Mode Standard") || roleSysteme.contains("standard") || roleSysteme.contains("sans RAG")) {
+            return "desactive";
+        }
+        
+        // Par défaut, mode conditionnel
+        return "conditionnel";
+    }
+
     public List<SelectItem> getRolesSysteme() {
         if (this.listeRolesSysteme == null) {
-            // Génère les rôles de l'API prédéfinis
+            // Génère les rôles de l'API prédéfinis adaptés au projet RAG sur l'architecture
             this.listeRolesSysteme = new ArrayList<>();
-            // Vous pouvez évidemment écrire ces rôles dans la langue que vous voulez.
+            
+            // Rôle 1 : RAG Conditionnel (détecte automatiquement si la question nécessite du RAG)
             String role = """
-                    You are a helpful assistant. You help the user to find the information they need.
-                    If the user type a question, you answer it.
+                    You are an expert in architecture. You help users understand different architectural styles.
+                    When users ask questions about architecture (Art Déco, Gothic, Modern), you use the provided context from the documents to give accurate and detailed answers.
+                    If the context is provided, base your answer on it. If no context is provided, answer based on your general knowledge.
+                    RAG Conditionnel: Le système détecte automatiquement si votre question concerne l'architecture et utilise le RAG seulement si nécessaire.
                     """;
             // 1er argument : la valeur du rôle, 2ème argument : le libellé du rôle
-            this.listeRolesSysteme.add(new SelectItem(role, "Assistant"));
+            this.listeRolesSysteme.add(new SelectItem(role, "RAG Conditionnel (RAG)"));
 
+            // Rôle 2 : RAG Multi-Documents (utilise toujours le RAG avec routage automatique entre les 3 PDF)
             role = """
-                    You are an interpreter. You translate from English to French and from French to English.
-                    If the user type a French text, you translate it into English.
-                    If the user type an English text, you translate it into French.
-                    If the text contains only one to three words, give some examples of usage of these words in English.
+                    You are an architecture guide. You help users discover and understand architectural styles and monuments.
+                    When users ask about architectural styles (Art Déco, Gothic, Modern), use the provided context from the documents to give detailed information.
+                    You can also suggest architectural sites to visit and explain their historical and architectural significance.
+                    RAG Multi-Documents: Le système utilise toujours le RAG avec routage automatique entre les 3 PDF (ArtDeco.pdf, gothique.pdf, moderne.pdf).
                     """;
-            this.listeRolesSysteme.add(new SelectItem(role, "Traducteur Anglais-Français"));
+            this.listeRolesSysteme.add(new SelectItem(role, "RAG Multi-Documents (RAG Routage)"));
 
+            // Rôle 3 : Mode Standard (sans RAG, réponse directe du LLM)
             role = """
-                    Your are a travel guide. If the user type the name of a country or of a town,
-                    you tell them what are the main places to visit in the country or the town
-                    are you tell them the average price of a meal.
+                    You are a helpful assistant. You answer questions directly without using any document context.
+                    You provide general information and help users with their questions.
+                    Mode Standard: Le système répond directement sans utiliser le RAG ni les documents PDF.
                     """;
-            this.listeRolesSysteme.add(new SelectItem(role, "Guide touristique"));
+            this.listeRolesSysteme.add(new SelectItem(role, "Mode Standard (LLM)"));
         }
 
         return this.listeRolesSysteme;
