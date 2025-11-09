@@ -1,4 +1,4 @@
-package jsf;
+package ma.emsi.bendahou.tp4_web.jsf;
 import jakarta.servlet.*;
 import jakarta.servlet.annotation.WebFilter;
 

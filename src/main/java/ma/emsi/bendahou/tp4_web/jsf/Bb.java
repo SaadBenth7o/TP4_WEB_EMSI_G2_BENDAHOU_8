@@ -1,4 +1,4 @@
-package jsf;
+package ma.emsi.bendahou.tp4_web.jsf;
 
 import jakarta.faces.application.FacesMessage;
 import jakarta.faces.context.FacesContext;
@@ -6,7 +6,7 @@ import jakarta.faces.model.SelectItem;
 import jakarta.faces.view.ViewScoped;
 import jakarta.inject.Inject;
 import jakarta.inject.Named;
-import ma.emsi.bendahou.tp2_bendahou_web.llm.LlmClient;
+import ma.emsi.bendahou.tp4_web.llm.LlmClient;
 
 import java.io.Serializable;
 import java.util.ArrayList;

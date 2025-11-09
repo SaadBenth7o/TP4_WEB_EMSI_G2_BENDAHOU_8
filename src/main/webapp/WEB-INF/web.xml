@@ -8,7 +8,7 @@
     </welcome-file-list>
     <filter>
         <filter-name>CharsetFilter</filter-name>
-        <filter-class>jsf.CharsetFilter</filter-class>
+        <filter-class>ma.emsi.bendahou.tp4_web.jsf.CharsetFilter</filter-class>
     </filter>
     <filter-mapping>
         <filter-name>CharsetFilter</filter-name>
