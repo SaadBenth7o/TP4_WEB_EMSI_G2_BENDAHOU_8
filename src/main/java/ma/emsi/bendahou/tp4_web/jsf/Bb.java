@@ -235,10 +235,44 @@ public class Bb implements Serializable {
         }
         
         // Vérifier qu'un rôle est défini ou qu'un fichier a été uploadé
-        if ((roleSysteme == null || roleSysteme.isBlank()) && 
-            (magasinEmbeddingsUpload == null || messagePourChargementFichier == null || messagePourChargementFichier.isEmpty())) {
+        // Si aucun rôle n'est défini ET aucun fichier n'a été uploadé, afficher une erreur
+        // Note: roleSysteme peut contenir soit le texte complet du rôle, soit le libellé si l'utilisateur a tapé dans le champ editable
+        boolean roleDefini = roleSysteme != null && !roleSysteme.isBlank();
+        boolean fichierUploadé = magasinEmbeddingsUpload != null && 
+                                 messagePourChargementFichier != null && 
+                                 !messagePourChargementFichier.isEmpty() &&
+                                 messagePourChargementFichier.contains("✅");
+        
+        // Si roleSysteme n'est pas vide, vérifier si c'est un libellé (ce qui est affiché dans le selectOneMenu)
+        // PrimeFaces peut stocker le libellé au lieu de la valeur dans certains cas
+        if (roleSysteme != null && !roleSysteme.isBlank()) {
+            // Vérifier si c'est un libellé (ce qui est affiché dans le selectOneMenu)
+            for (SelectItem item : getRolesSysteme()) {
+                if (item.getLabel() != null && item.getLabel().equals(roleSysteme)) {
+                    // Si c'est le libellé, utiliser la valeur correspondante
+                    roleSysteme = (String) item.getValue();
+                    roleDefini = true;
+                    break;
+                }
+            }
+            // Si roleSysteme contient le texte complet du rôle (valeur), c'est déjà bon
+            // Vérifier si c'est une valeur valide en cherchant dans la liste
+            if (!roleDefini) {
+                for (SelectItem item : getRolesSysteme()) {
+                    if (item.getValue() != null && item.getValue().equals(roleSysteme)) {
+                        roleDefini = true;
+                        break;
+                    }
+                }
+            }
+        }
+        
+        // Si roleSysteme est toujours null ou vide après les vérifications, afficher une erreur
+        if (!roleDefini && !fichierUploadé) {
+            // Ajouter un message d'erreur plus détaillé pour le débogage
+            String debugInfo = "roleSysteme=" + (roleSysteme != null ? roleSysteme : "null");
             FacesMessage message = new FacesMessage(FacesMessage.SEVERITY_ERROR,
-                    "Rôle ou fichier requis", "Vous devez indiquer le rôle de l'assistant ou uploader un fichier PDF");
+                    "Rôle ou fichier requis", "Vous devez indiquer le rôle de l'assistant ou uploader un fichier PDF. " + debugInfo);
             getFacesContext().addMessage(null, message);
             return null;
         }
@@ -261,7 +295,7 @@ public class Bb implements Serializable {
             }
             
             // Déterminer le mode RAG selon le rôle choisi (ou utiliser "desactive" si aucun rôle)
-            String modeRag = (roleSysteme != null && !roleSysteme.isBlank()) 
+            String modeRag = roleDefini 
                     ? determinerModeRag(roleSysteme) 
                     : "desactive";
             llmClient.setModeRag(modeRag);
@@ -274,10 +308,10 @@ public class Bb implements Serializable {
             // On configure le rôle système si c'est la première question et qu'un rôle est défini
             // Si un fichier a été uploadé, le rôle n'est pas obligatoire
             if (this.conversation.isEmpty()) {
-                if (roleSysteme != null && !roleSysteme.isBlank()) {
+                if (roleDefini) {
                     llmClient.setSystemRole(roleSysteme);
                     this.roleSystemeChangeable = false;
-                } else if (magasinEmbeddingsUpload != null) {
+                } else if (fichierUploadé) {
                     // Si un fichier a été uploadé mais pas de rôle, utiliser un rôle par défaut pour l'upload
                     String roleParDefaut = "You are a helpful assistant. You answer questions based on the document uploaded by the user. When the user uploads a PDF document, you use the context from that document to answer their questions.";
                     llmClient.setSystemRole(roleParDefaut);
@@ -286,10 +320,19 @@ public class Bb implements Serializable {
             }
         } else {
             // Mettre à jour le mode RAG si le rôle change (ou utiliser "desactive" si aucun rôle)
-            String modeRag = (roleSysteme != null && !roleSysteme.isBlank()) 
-                    ? determinerModeRag(roleSysteme) 
-                    : "desactive";
-            llmClient.setModeRag(modeRag);
+            // S'assurer que roleSysteme est bien défini
+            if (!roleDefini) {
+                // Si le rôle n'est pas défini mais qu'un fichier a été uploadé, continuer
+                if (fichierUploadé) {
+                    llmClient.setModeRag("desactive");
+                } else {
+                    // Sinon, erreur déjà gérée plus haut
+                    return null;
+                }
+            } else {
+                String modeRag = determinerModeRag(roleSysteme);
+                llmClient.setModeRag(modeRag);
+            }
             
             // Configurer le magasin d'embeddings uploadé si disponible (fonctionne avec tous les modes)
             // Toujours mettre à jour pour s'assurer que le magasin est à jour
@@ -398,7 +441,9 @@ public class Bb implements Serializable {
         }
         
         // RAG Conditionnel : détecte automatiquement si la question nécessite du RAG
-        if (roleSysteme.contains("RAG Conditionnel") || roleSysteme.contains("conditionnel")) {
+        // Vérifier si c'est le libellé ou la valeur
+        if (roleSysteme.contains("RAG Conditionnel") || roleSysteme.contains("conditionnel") || 
+            roleSysteme.contains("RAG Conditionnel: Le système détecte")) {
             return "conditionnel";
         }
         

@@ -9,21 +9,34 @@
     <h:outputScript name="js/script.js" target="head"/>
     <title>Conversation</title>
 </h:head>
-<h:body>
+<h:body style="background-color: #f5f5f5; padding: 20px;">
     <f:view>
 
         <!-- Les éventuels messages d'erreur non liés à un champ particulier sont affichés ici en rouge -->
         <h:messages errorStyle="color: red" showDetail="true" showSummary="false" globalOnly="true"/>
 
-        <h:form id="form">
-
+        <!-- Section d'upload de document (en dessous du rôle d'assistant, formulaire séparé) -->
+        <h:form id="pdfform" enctype="multipart/form-data">
+            <h:panelGroup style="padding: 10px;">
+                <h:outputText value="Avez-vous d'autres thèmes que vous voulez en parler? Dites-les-nous.  " style="font-weight: 500; color: #333;"/>
+                <h:inputFile id="file" value="#{bb.fichier}" style="display: none;" onchange="document.getElementById('pdfform:uploadBtn').click();"/>
+                <h:commandButton id="uploadBtn" value="Upload Files PDF" action="#{bb.upload}" style="display: none;"/>
+                <h:commandButton value="Upload Files PDF" onclick="document.getElementById('pdfform:file').click(); return false;" styleClass="upload-button"/>
+                <h:outputText value="  "/>
+                <h:outputText value="#{bb.messagePourChargementFichier}"
+                              rendered="#{not empty bb.messagePourChargementFichier}" 
+                              style="color: #388e3c; font-weight: 500; margin-left: 10px;"/>
+            </h:panelGroup>
+        </h:form>
+        
+        <h:form id="form2">
+            
             <p:outputLabel for="rolesysteme" value="Rôle de l'assistant : "/>
             <!-- La valeur choisie dans cette liste déroulante sera affectée
             à la propriété systemRole du backing bean. Cette liste est figée (disabled)
             dès qu'une requête a été envoyée au serveur. -->
             <p:selectOneMenu id="rolesysteme" value="#{bb.roleSysteme}" editable="true"
-                             required="#{empty bb.messagePourChargementFichier}" 
-                             requiredMessage="Vous devez indiquer le rôle de l'assistant ou uploader un fichier PDF"
+                             required="false"
                              disabled="#{! bb.roleSystemeChangeable}">
                 <f:selectItems value="#{bb.rolesSysteme}"/>
             </p:selectOneMenu>
@@ -33,22 +46,6 @@
             <!-- Si on veut commencer un nouveau chat avec, éventuellement, un autre rôle. -->
             <h:outputText value="  "/>
             <h:commandButton value="Nouveau chat" action="#{bb.nouveauChat}" />
-        </h:form>
-        
-        <!-- Section d'upload de document (en dessous du rôle d'assistant, formulaire séparé) -->
-        <h:form id="pdfform" enctype="multipart/form-data">
-            <h:panelGroup>
-                <h:outputText value="Avez-vous d'autres thèmes que vous voulez en parler? Dites-les-nous.  "/>
-                <h:inputFile id="file" value="#{bb.fichier}" style="display: none;" onchange="document.getElementById('pdfform:uploadBtn').click();"/>
-                <h:commandButton id="uploadBtn" value="Upload Files PDF" action="#{bb.upload}" style="display: none;"/>
-                <h:commandButton value="Upload Files PDF" onclick="document.getElementById('pdfform:file').click(); return false;"/>
-                <h:outputText value="  "/>
-                <h:outputText value="#{bb.messagePourChargementFichier}"
-                              rendered="#{not empty bb.messagePourChargementFichier}"/>
-            </h:panelGroup>
-        </h:form>
-        
-        <h:form id="form2">
 
             <!-- Les éléments de la page sont disposés en deux colonnes :
             question et réponse à gauche et historique de la conversation à droite. -->
@@ -57,29 +54,29 @@
                 <h:panelGrid id="panelgauche" columns="1">
                     <h:panelGrid id="questionetreponse" columns="1">
                         <h:panelGroup>
-                            <h:outputText value="Question :"/>
-                            <button onclick="copyToClipboard('question')">Copier question</button>
+                            <h:outputText value="Question :" style="font-weight: 600; color: #333; font-size: 16px;"/>
+                            <button onclick="copyToClipboard('question')" style="margin-left: 10px;">Copier question</button>
                             <button onclick="toutEffacer()">Effacer question et réponse</button>
                         </h:panelGroup>
                         <h:inputTextarea id="question" value="#{bb.question}" title="Question"
-                                         cols="50" rows="5"/>
-                        <h:commandButton value="Envoyer la question" action="#{bb.envoyer}"/>
+                                         cols="50" rows="5" styleClass="question-textarea"/>
+                        <h:commandButton value="Envoyer la question" action="#{bb.envoyer}" styleClass="send-button"/>
                         <h:panelGroup>
-                            <h:outputText value="Réponse :"/>
-                            <button onclick="copyToClipboard('reponse')">Copier réponse</button>
+                            <h:outputText value="Réponse :" style="font-weight: 600; color: #333; font-size: 16px;"/>
+                            <button onclick="copyToClipboard('reponse')" style="margin-left: 10px;">Copier réponse</button>
                         </h:panelGroup>
                         <h:inputTextarea id="reponse" value="#{bb.reponse}" title="Réponse"
-                                         cols="50" rows="15"/>
+                                         cols="50" rows="15" styleClass="response-textarea"/>
                     </h:panelGrid>
 
                 </h:panelGrid>
                 <h:panelGrid id="paneldroit" columns="1" style="vertical-align: top;">
                     <h:panelGroup>
-                        <h:outputText value="Conversation :"/>
-                        <button onclick="copyToClipboard('conversation')">Copier conversation</button>
+                        <h:outputText value="Conversation :" style="font-weight: 600; color: #333; font-size: 16px;"/>
+                        <button onclick="copyToClipboard('conversation')" style="margin-left: 10px;">Copier conversation</button>
                     </h:panelGroup>
                     <h:inputTextarea id="conversation" rows="30" cols="50" readonly="true"
-                                     value="#{bb.conversation}" title="Conversation entière"/>
+                                     value="#{bb.conversation}" title="Conversation entière" styleClass="conversation-textarea"/>
                 </h:panelGrid>
 
             </h:panelGrid>
